@@ -3,33 +3,38 @@
 import os, sys, re, pipes
 from subprocess import call
 from time import clock
+
 from llconfig import *
-sys.path.insert(0, os.path.join(lextools, 'scripts'))
+
+sys.path.insert(0, os.path.join(LEXTOOLS, 'scripts'))
 import common
 
 after_end_re = re.compile(r'\$.*?\^')
 punct_tag_re = re.compile('<(guio|sent|cm)>')
-open_cats_re = re.compile('<{}>'.format('>|<'.join(opencats)))
+open_cats_re = re.compile('<{}>'.format('>|<'.join(OPENCATS)))
 
 lm_fname = "/tmp/test.lm"
 
-def tag_corpus(pair_data, source, target,
-               pair_name, corpus_folder,
-               corpus_name, data_folder):
+def tag_corpus(PAIR_DATA, SOURCE, TARGET,
+               pair_name, CORPUS_FOLDER,
+               CORPUS_NAME, DATA_FOLDER):
     """
     Translate corpus up until pretransfer stage
     """
     # create partial translation pipeline
     pipe = pipes.Template()
-    pipe.append('apertium -d "{}" {}-{}-tagger'.format(pair_data, source, target), '--')
+    pipe.append('apertium -d "{}" {}-{}-tagger'.format(PAIR_DATA,
+                                                       SOURCE,
+                                                       TARGET),
+                                                       '--')
     pipe.append('apertium-pretransfer', '--')
 
     # file names
-    corpus_prefix = os.path.join(corpus_folder, corpus_name)
-    ifname = os.path.join(corpus_folder,
-                          '{}.{}.{}'.format(corpus_prefix, pair_name, source))
-    ofname = os.path.join(data_folder, 
-                          '{}.{}.tagged.{}'.format(corpus_name, pair_name, source))
+    corpus_prefix = os.path.join(CORPUS_FOLDER, CORPUS_NAME)
+    ifname = os.path.join(CORPUS_FOLDER,
+                          '{}.{}.{}'.format(corpus_prefix, pair_name, SOURCE))
+    ofname = os.path.join(DATA_FOLDER, 
+                          '{}.{}.tagged.{}'.format(CORPUS_NAME, pair_name, SOURCE))
     
     # translation
     linecount = 0
@@ -38,11 +43,11 @@ def tag_corpus(pair_data, source, target,
         for line in ifile:
             pipefile.write(line)
             linecount += 1
-            if linecount == maxlines:
+            if linecount == MAXLINES:
                 break
     return linecount, ofname
 
-def clean_tags(pair_name, sfname, tfname, source, target, corpus_name, data_folder):
+def clean_tags(pair_name, sfname, tfname, SOURCE, TARGET, CORPUS_NAME, DATA_FOLDER):
     """
     Clean up and convert tags simultaneously in both corpora to be used in MGIZA
     """
@@ -55,21 +60,21 @@ def clean_tags(pair_name, sfname, tfname, source, target, corpus_name, data_fold
                 sfile_re.write(after_end_re.sub('$ ^', sline.replace(' ', '~')))
                 tfile_re.write(after_end_re.sub('$ ^', tline.replace(' ', '~')))
 
-    ifname_prefix = os.path.join(data_folder, '{}.{}.retagged'.format(corpus_name, pair_name))
-    ofname_prefix = os.path.join(data_folder, '{}.{}.tagged-clean'.format(corpus_name, pair_name))
+    ifname_prefix = os.path.join(DATA_FOLDER, '{}.{}.retagged'.format(CORPUS_NAME, pair_name))
+    ofname_prefix = os.path.join(DATA_FOLDER, '{}.{}.tagged-clean'.format(CORPUS_NAME, pair_name))
 
-    call(['perl', os.path.join(moses, 'clean-corpus-n.perl'), ifname_prefix,
-          source, target, ofname_prefix, '1', '40'])
+    call(['perl', os.path.join(MOSES, 'clean-corpus-n.perl'), ifname_prefix,
+          SOURCE, TARGET, ofname_prefix, '1', '40'])
 
-    return '{}.{}'.format(ofname_prefix, source), '{}.{}'.format(ofname_prefix, target)
+    return '{}.{}'.format(ofname_prefix, SOURCE), '{}.{}'.format(ofname_prefix, TARGET)
 
-def trim_tags(pair_data, source, target, lextools, ifname):
+def trim_tags(PAIR_DATA, SOURCE, TARGET, LEXTOOLS, ifname):
     """
     Trim individual tag sets to fit into some coarse-grained classes.
     """
     pipe = pipes.Template()
-    pipe.append('{} {}.autobil.bin -p -t'.format(os.path.join(lextools, 'multitrans'),
-                                                 os.path.join(pair_data, '{}-{}'.format(source, target))), '--')
+    pipe.append('{} {}.autobil.bin -p -t'.format(os.path.join(LEXTOOLS, 'multitrans'),
+                                                 os.path.join(PAIR_DATA, '{}-{}'.format(SOURCE, TARGET))), '--')
     ofname = ifname.replace('tagged-clean', 'trimmed')
 
     pipe.copy(ifname, ofname)
@@ -83,89 +88,80 @@ def trim_tags(pair_data, source, target, lextools, ifname):
 def get_default(line):
     lemma_tl = '';
     tags_tl = '';
+
     lemma_sl = '';
     tags_sl = '';
+
     state = 0;
     escaped = False;
-    for c in line: #{
-        if c == '^': #{
-            state = 1; 
+    for c in line:
+        if c == '^':
+            state = 1;
             continue;
-        #}
-        if c == '\\': #{
+        if c == '\\':
             escaped = True;
             continue;
-        #}
-        if c == '<': #{
-            if state == 1: #{
+        if c == '<':
+            if state == 1:
                 state = 2; 
-            #}
-            if state == 3: #{
+            if state == 3:
                 state = 4;
-            #}
             continue;
-        #}
-        if c == '/' and state == 2 and not escaped: #{
+        if c == '/' and state == 2 and not escaped:
             state = 3    
             continue;
-        #}
-        if c == '$' or (c == '/' and state > 2) and not escaped: #{
+        if c == '$' or (c == '/' and state > 2) and not escaped:
             break;
-        #}
 
-        if state == 1: #{
+        if state == 1:
             lemma_sl = lemma_sl + c;
-        elif state == 2: #{    
-            if c == '>': #{
+        elif state == 2:
+            if c == '>':
                 tags_sl = tags_sl + '.'    
-            elif c != '<': #{
+            elif c != '<':
                 tags_sl = tags_sl + c;
-            #}
-                
-        elif state == 3: #{
+        elif state == 3:
             lemma_tl = lemma_tl + c;    
-        elif state == 4: #{
-            if c == '>': #{
+        elif state == 4:
+            if c == '>':
                 tags_tl = tags_tl + '.'    
-            elif c != '<': #{
+            elif c != '<':
                 tags_tl = tags_tl + c;
-            #}
-        #}
-    #}    
+
     tags_sl = tags_sl.strip('.');
     tags_tl = tags_tl.strip('.');
 
     return (lemma_sl, tags_sl, lemma_tl, tags_tl)
 
-def prepare_data(pair_data, source, target, pair_name, data_folder):
+def prepare_data(PAIR_DATA, SOURCE, TARGET, pair_name, DATA_FOLDER):
     """
     Make rules for the words that must be translated unambiguously
     (i.e. that are not in open classes).
     """
-    autobil_ambig = os.path.join(pair_data, '{}-{}.autobil.ambig.bin'.format(source, target))
-    autobil_unambig = os.path.join(pair_data, '{}-{}.autobil.bin'.format(source, target))
+    autobil_ambig = os.path.join(PAIR_DATA, '{}-{}.autobil.ambig.bin'.format(SOURCE, TARGET))
+    autobil_unambig = os.path.join(PAIR_DATA, '{}-{}.autobil.bin'.format(SOURCE, TARGET))
 
-    call(['lt-comp', 'lr', os.path.join(pair_data, 'apertium-{}.{}.dix'.format(pair_name, pair_name)), autobil_ambig])
+    call(['lt-comp', 'lr', os.path.join(PAIR_DATA, 'apertium-{}.{}.dix'.format(pair_name, pair_name)), autobil_ambig])
 
     cwdir = os.getcwd()
-    os.chdir(pair_data)
-    call(['make', '{}-{}.autobil.bin'.format(source, target)])
+    os.chdir(PAIR_DATA)
+    call(['make', '{}-{}.autobil.bin'.format(SOURCE, TARGET)])
     os.chdir(cwdir)
 
-    if os.path.exists(os.path.join(pair_data, '.deps', 'en.dix')):
-        dict_name = os.path.join(pair_data, '.deps', 'en.dix')
+    if os.path.exists(os.path.join(PAIR_DATA, '.deps', 'en.dix')):
+        dict_name = os.path.join(PAIR_DATA, '.deps', 'en.dix')
     else:
-        dict_name = os.path.join(pair_data, 'apertium-{}.{}.dix'.format(pair_name, source))
+        dict_name = os.path.join(PAIR_DATA, 'apertium-{}.{}.dix'.format(pair_name, SOURCE))
 
     ambig_pipe = pipes.Template()
-    ambig_pipe.append('{} {} -b -t'.format(os.path.join(lextools, 'multitrans'), autobil_ambig), '--')
-    ambig_pipefname = os.path.join(data_folder, 'ambig')
+    ambig_pipe.append('{} {} -b -t'.format(os.path.join(LEXTOOLS, 'multitrans'), autobil_ambig), '--')
+    ambig_pipefname = os.path.join(DATA_FOLDER, 'ambig')
 
     unambig_pipe = pipes.Template()
-    unambig_pipe.append('{} {} -b -t'.format(os.path.join(lextools, 'multitrans'), autobil_unambig), '--')
-    unambig_pipefname = os.path.join(data_folder, 'unambig')
+    unambig_pipe.append('{} {} -b -t'.format(os.path.join(LEXTOOLS, 'multitrans'), autobil_unambig), '--')
+    unambig_pipefname = os.path.join(DATA_FOLDER, 'unambig')
 
-    exp_dict_fname = os.path.join(data_folder, 'expanded')
+    exp_dict_fname = os.path.join(DATA_FOLDER, 'expanded')
     call(['lt-expand', dict_name, exp_dict_fname])
     with open(exp_dict_fname, 'r', encoding='utf-8') as exp_dict_file, \
          ambig_pipe.open(ambig_pipefname, 'w') as ambig_pipefile, \
@@ -187,19 +183,19 @@ def prepare_data(pair_data, source, target, pair_name, data_folder):
 
     rules = list(rules)
     rules.sort(key=lambda x: x[0].lower())   
-    gdeffname = os.path.join(data_folder, 'global-defaults.{}-{}.lrx'.format(source, target))
+    gdeffname = os.path.join(DATA_FOLDER, 'global-defaults.{}-{}.lrx'.format(SOURCE, TARGET))
     with open(gdeffname, 'w', encoding='utf-8') as gdeffile:
         gdeffile.write('<rules>\n')
         for rule in rules:
             gdeffile.write('  <rule><match lemma="{}" tags="{}"><select lemma="{}" tags="{}"/></match></rule>\n'.format(*rule))
         gdeffile.write('</rules>')
 
-    call(['lrx-comp', gdeffname, os.path.join(data_folder, 'global-defaults.{}-{}.bin'.format(source, target))])
+    call(['lrx-comp', gdeffname, os.path.join(DATA_FOLDER, 'global-defaults.{}-{}.bin'.format(SOURCE, TARGET))])
 
 def is_ambiguous(bt):
     return any(len(token['tls']) > 1 for token in bt)
 
-def align_corpus(pair_data, source, target, pair_name, corpus_name, data_folder):
+def align_corpus(PAIR_DATA, SOURCE, TARGET, pair_name, CORPUS_NAME, DATA_FOLDER):
     """
     Exactly what it says on the tin.
     """
@@ -207,32 +203,32 @@ def align_corpus(pair_data, source, target, pair_name, corpus_name, data_folder)
     open(lm_fname, 'w', encoding='utf-8').write('1\n2\n3')
 
     # align corpus
-    ifname_prefix = os.path.join(data_folder, '{}.{}.trimmed'.format(corpus_name, pair_name))
-    call(['perl', os.path.join(moses, 'train-model.perl'),
-          '-mgiza', '-external-bin-dir', giza, 
-          '-corpus', ifname_prefix, '-f', target, '-e', source,
+    ifname_prefix = os.path.join(DATA_FOLDER, '{}.{}.trimmed'.format(CORPUS_NAME, pair_name))
+    call(['perl', os.path.join(MOSES, 'train-model.perl'),
+          '-mgiza', '-external-bin-dir', GIZA, 
+          '-corpus', ifname_prefix, '-f', TARGET, '-e', SOURCE,
           '-alignment', 'grow-diag-final-and', '-reordering', 'msd-bidirectional-fe', 
           '-lm', '0:5:{}:0'.format(lm_fname)])
 
     # extract phrase alignments
-    pair = '{}-{}'.format(source, target)
+    pair = '{}-{}'.format(SOURCE, TARGET)
     extract_pipe = pipes.Template()
     extract_pipe.append('zcat $IN', 'f-')
-    extract_pipe.append(os.path.join(lextools, 'scripts', 'giza-to-moses.awk'), '--')
+    extract_pipe.append(os.path.join(LEXTOOLS, 'scripts', 'giza-to-moses.awk'), '--')
 
     giza_final = 'giza.{}.A3.final.gz'.format(os.path.join(pair, pair))
-    phrases_fname = os.path.join(data_folder, 
-                                 '{}.phrases.{}'.format(corpus_name, pair))
-    phrasetable_fname = os.path.join(data_folder, 
-                                     '{}.phrasetable.{}'.format(corpus_name, pair))
+    phrases_fname = os.path.join(DATA_FOLDER, 
+                                 '{}.phrases.{}'.format(CORPUS_NAME, pair))
+    phrasetable_fname = os.path.join(DATA_FOLDER, 
+                                     '{}.phrasetable.{}'.format(CORPUS_NAME, pair))
     
     extract_pipe.copy(giza_final, phrases_fname)
 
     cb_pipe = pipes.Template()
-    cb_pipe.append('{} {}.autobil.bin -b'.format(os.path.join(lextools, 'multitrans'),
-                                                 os.path.join(pair_data, pair)), '--')
-    cb_pipe.append('lrx-proc -m ' + os.path.join(data_folder, 'global-defaults.{}.bin'.format(pair)), '--')
-    clean_biltrans_fname = os.path.join(data_folder, '{}.clean-biltrans.{}'.format(corpus_name,  pair))
+    cb_pipe.append('{} {}.autobil.bin -b'.format(os.path.join(LEXTOOLS, 'multitrans'),
+                                                 os.path.join(PAIR_DATA, pair)), '--')
+    cb_pipe.append('lrx-proc -m ' + os.path.join(DATA_FOLDER, 'global-defaults.{}.bin'.format(pair)), '--')
+    clean_biltrans_fname = os.path.join(DATA_FOLDER, '{}.clean-biltrans.{}'.format(CORPUS_NAME,  pair))
 
     with open(phrases_fname, 'r', encoding='utf-8') as pfile,\
          open(os.path.join('model', 'aligned.grow-diag-final-and'), 'r', encoding='utf-8') as agdfinal,\
@@ -244,7 +240,7 @@ def align_corpus(pair_data, source, target, pair_name, corpus_name, data_folder)
             cb_pipefile.write(phrases[1].replace('~', ' ') + '\n')
 
     # extract candidate sentences
-    cand_fname = os.path.join(data_folder, '{}.candidates.{}'.format(corpus_name, pair))
+    cand_fname = os.path.join(DATA_FOLDER, '{}.candidates.{}'.format(CORPUS_NAME, pair))
     not_ambiguous = []
     lineno, total_valid, total_errors = 0, 0, 0
     with open(phrasetable_fname, 'r', encoding='utf-8') as ptfile,\
@@ -316,7 +312,7 @@ def align_corpus(pair_data, source, target, pair_name, corpus_name, data_folder)
                             sl_tl[slword].setdefault(tlword, 0)
                             sl_tl[slword][tlword] += 1
 
-    freq_lex_fname = os.path.join(data_folder, '{}.lex.{}'.format(corpus_name, pair))
+    freq_lex_fname = os.path.join(DATA_FOLDER, '{}.lex.{}'.format(CORPUS_NAME, pair))
     with open(freq_lex_fname, 'w', encoding='utf-8') as freq_lex_file:
         for sl, tl_freq_dict in sl_tl.items():
             first_tag_sl = sl.split('<')[1].split('>')[0].strip()
@@ -418,7 +414,7 @@ def ngram_count_patterns_maxent(cand_fname, freq_lex_fname, yasmet_data):
                             meevents = {} # events[slword][counter] = [feat, feat, feat];
                             meoutcomes = {} # meoutcomes[slword][counter] = tlword;
 
-                            for j in range(1, max_ngrams):
+                            for j in range(1, MAX_NGRAMS):
                                 pregram = ' '.join(('^{}$'.format(gram) for gram in cur_sl_row[i-j:i+1]))
                                 postgram = ' '.join(('^{}$'.format(gram) for gram in cur_sl_row[i:i+j+1]))
                                 roundgram = ' '.join(('^{}$'.format(gram) for gram in cur_sl_row[i-j:i+j+1]))
@@ -470,7 +466,7 @@ def get_lambdas(yasmet_data, event_fname):
     Learn weights with yasmet.
     """
     event_dict = {}
-    min_ngrams = max_ngrams * 2 - 1
+    min_ngrams = MAX_NGRAMS * 2 - 1
     with open(event_fname, 'r', encoding='utf-8') as eventfile:
         for line in eventfile:
             parts = line.strip().split('\t')
@@ -481,7 +477,7 @@ def get_lambdas(yasmet_data, event_fname):
 
     print(sorted(event_dict.keys()))
 
-    yasmet = os.path.join(lextools, 'yasmet')
+    yasmet = os.path.join(LEXTOOLS, 'yasmet')
     yasmet_pipe = pipes.Template()
     yasmet_pipe.append('{} -red {}'.format(yasmet, min_ngrams), '--')
     yasmet_pipe.append(yasmet, '--')
@@ -605,56 +601,56 @@ def make_rules(pair_name, freq_lex_fname, yasmet_data, ngram_fname, all_lambdas_
                         final_file.write(xml_rule)
         final_file.write('</rules>')
 
-def extract_maxent(pair_data, source, target, corpus_pair_name, corpus_name, data_folder, cand_fname, freq_lex_fname):
+def extract_maxent(PAIR_DATA, SOURCE, TARGET, CORPUS_PAIR_NAME, CORPUS_NAME, DATA_FOLDER, cand_fname, freq_lex_fname):
     """
     Run all stuff concerning maximum entropy learning.
     """
-    pair = '{}-{}'.format(source, target)
+    pair = '{}-{}'.format(SOURCE, TARGET)
     yasmet_data = 'yasmet.' + pair
     if not os.path.exists(yasmet_data):
         os.mkdir(yasmet_data)
     event_fname, ngram_fname = ngram_count_patterns_maxent(cand_fname, freq_lex_fname, yasmet_data)
     all_lambdas_fname, min_ngrams = get_lambdas(yasmet_data, event_fname)
-    make_rules(corpus_pair_name, freq_lex_fname, yasmet_data, ngram_fname, all_lambdas_fname, min_ngrams)
+    make_rules(CORPUS_PAIR_NAME, freq_lex_fname, yasmet_data, ngram_fname, all_lambdas_fname, min_ngrams)
 
 if __name__ == "__main__":
-    if not os.path.exists(data_folder):
-        os.makedirs(data_folder)
+    if not os.path.exists(DATA_FOLDER):
+        os.makedirs(DATA_FOLDER)
 
     print('Preparing corpora')
     btime = clock()
 
     # tag corpora
-    slinecount, sfname = tag_corpus(pair_data, source, target, 
-                                    corpus_pair_name, corpus_folder,
-                                    corpus_name, data_folder)
-    tlinecount, tfname = tag_corpus(pair_data, target, source,
-                                    corpus_pair_name, corpus_folder,
-                                    corpus_name, data_folder)
+    slinecount, sfname = tag_corpus(PAIR_DATA, SOURCE, TARGET, 
+                                    CORPUS_PAIR_NAME, CORPUS_FOLDER,
+                                    CORPUS_NAME, DATA_FOLDER)
+    tlinecount, tfname = tag_corpus(PAIR_DATA, TARGET, SOURCE,
+                                    CORPUS_PAIR_NAME, CORPUS_FOLDER,
+                                    CORPUS_NAME, DATA_FOLDER)
 
     # clean tags (using moses script)
-    sfname, tfname = clean_tags(corpus_pair_name, sfname, tfname, source, target, corpus_name, data_folder)
+    sfname, tfname = clean_tags(CORPUS_PAIR_NAME, sfname, tfname, SOURCE, TARGET, CORPUS_NAME, DATA_FOLDER)
 
     # trim tags
-    sfname = trim_tags(pair_data, source, target, lextools, sfname)
-    tfname = trim_tags(pair_data, target, source, lextools, tfname)
+    sfname = trim_tags(PAIR_DATA, SOURCE, TARGET, LEXTOOLS, sfname)
+    tfname = trim_tags(PAIR_DATA, TARGET, SOURCE, LEXTOOLS, tfname)
 
     print('The corpora were prepared successfully in {:f}'.format(clock() - btime))
 
     print('Preparing data')
     btime = clock()
-    prepare_data(pair_data, source, target, apertium_pair_name, data_folder)
+    prepare_data(PAIR_DATA, SOURCE, TARGET, APERTIUM_PAIR_NAME, DATA_FOLDER)
     print('The data was prepared successfully in {:f}'.format(clock() - btime))
 
     print('Aligning corpus')
     btime = clock()
-    cand_fname, freq_lex_fname = align_corpus(pair_data, source, target,
-                                              corpus_pair_name, 
-                                              corpus_name, data_folder)
+    cand_fname, freq_lex_fname = align_corpus(PAIR_DATA, SOURCE, TARGET,
+                                              CORPUS_PAIR_NAME, 
+                                              CORPUS_NAME, DATA_FOLDER)
     print('Corpus was aligned successfully in {:f}'.format(clock() - btime))
 
     print('Extracting rules')
     btime = clock()
-    extract_maxent(pair_data, source, target, corpus_pair_name, corpus_name,
-                   data_folder, cand_fname, freq_lex_fname)
+    extract_maxent(PAIR_DATA, SOURCE, TARGET, CORPUS_PAIR_NAME, CORPUS_NAME,
+                   DATA_FOLDER, cand_fname, freq_lex_fname)
     print('Rules were extracted successfully in {:f}'.format(clock() - btime))
